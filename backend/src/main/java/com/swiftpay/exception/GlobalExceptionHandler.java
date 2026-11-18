@@ -45,6 +45,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(code.httpStatus()).body(responses.error(code, e.getMessage(), List.of()));
     }
 
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ErrorResponse> rateLimited(RateLimitExceededException e) {
+        return ResponseEntity.status(e.getErrorCode().httpStatus())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(e.getRetryAfterSeconds()))
+                .body(responses.error(e.getErrorCode()));
+    }
+
     @ExceptionHandler(RequestValidationException.class)
     ResponseEntity<ErrorResponse> requestValidation(RequestValidationException e) {
         return validation(e.getFieldErrors());

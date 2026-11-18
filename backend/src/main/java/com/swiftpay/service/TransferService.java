@@ -97,7 +97,7 @@ public class TransferService {
         receiver.credit(normalized.amount(), now);
         transfer.complete(now);
         auditLogger.transferCompleted(transfer);
-        return new TransferResult(TransferMapper.toResponse(transfer, source.getIban()), false);
+        return new TransferResult(TransferMapper.toCreated(transfer), false);
     }
 
     private TransferResult replay(Transfer existing, String requestHash) {
@@ -105,14 +105,10 @@ public class TransferService {
             throw new BusinessException(ErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
         return switch (existing.getStatus()) {
-            case COMPLETED -> new TransferResult(TransferMapper.toResponse(existing, sourceIban(existing)), true);
+            case COMPLETED -> new TransferResult(TransferMapper.toCreated(existing), true);
             case FAILED -> throw new BusinessException(ErrorCode.valueOf(existing.getFailureCode()));
             case PENDING -> throw new BusinessException(ErrorCode.REQUEST_IN_PROGRESS);
         };
-    }
-
-    private String sourceIban(Transfer transfer) {
-        return accountRepository.findById(transfer.getSourceAccountId()).map(Account::getIban).orElse(null);
     }
 
     private static String requireIdempotencyKey(String idempotencyKey) {

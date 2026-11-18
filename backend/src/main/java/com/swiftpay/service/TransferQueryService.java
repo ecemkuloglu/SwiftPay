@@ -4,8 +4,8 @@ import com.swiftpay.config.AppProperties;
 import com.swiftpay.domain.Account;
 import com.swiftpay.domain.Transfer;
 import com.swiftpay.dto.PageResponse;
+import com.swiftpay.dto.TransferListItem;
 import com.swiftpay.dto.TransferResponse;
-import com.swiftpay.dto.TransferSummary;
 import com.swiftpay.exception.BusinessException;
 import com.swiftpay.exception.ErrorCode;
 import com.swiftpay.repository.AccountRepository;
@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class TransferQueryService {
 
-    static final int MAX_PAGE_SIZE = 100;
+    public static final int MAX_PAGE_SIZE = 100;
 
     private final TransferRepository transferRepository;
     private final AccountRepository accountRepository;
@@ -38,17 +38,17 @@ public class TransferQueryService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.TRANSFER_NOT_FOUND));
         String sourceIban = accountRepository.findById(transfer.getSourceAccountId()).map(Account::getIban)
                 .orElse(null);
-        return TransferMapper.toResponse(transfer, sourceIban);
+        return TransferMapper.toDetail(transfer, sourceIban);
     }
 
     /**
-     * Newest first. {@code startDate}/{@code endDate} are inclusive calendar days in the business time zone,
-     * turned into [start 00:00, (end + 1 day) 00:00). Page size above 100 is capped to 100.
+     * Sorted by createdAt (id as tie-breaker) in the given direction. {@code startDate}/{@code endDate} are
+     * inclusive calendar days in the business time zone, turned into [start 00:00, (end + 1 day) 00:00).
      */
-    public PageResponse<TransferSummary> list(Long customerId, LocalDate startDate, LocalDate endDate,
-                                              int page, int size) {
-        if (page < 0 || size < 1) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "page must be >= 0 and size >= 1.");
+    public PageResponse<TransferListItem> list(Long customerId, LocalDate startDate, LocalDate endDate,
+                                               int page, int size, Sort.Direction direction) {
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "page must be >= 0 and size between 1 and 100.");
         }
         if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
             throw new BusinessException(ErrorCode.INVALID_DATE_RANGE);
@@ -56,11 +56,11 @@ public class TransferQueryService {
         ZoneId zone = appProperties.timezone();
         Instant startInclusive = startDate == null ? null : startDate.atStartOfDay(zone).toInstant();
         Instant endExclusive = endDate == null ? null : endDate.plusDays(1).atStartOfDay(zone).toInstant();
-        PageRequest pageRequest = PageRequest.of(page, Math.min(size, MAX_PAGE_SIZE),
-                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        PageRequest pageRequest = PageRequest.of(page, size,
+                Sort.by(new Sort.Order(direction, "createdAt"), new Sort.Order(direction, "id")));
 
         return PageResponse.from(transferRepository
                 .findAll(TransferSpecifications.forCustomer(customerId, startInclusive, endExclusive), pageRequest)
-                .map(TransferMapper::toSummary));
+                .map(TransferMapper::toListItem));
     }
 }

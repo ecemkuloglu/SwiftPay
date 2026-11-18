@@ -8,6 +8,7 @@ import com.swiftpay.service.AuthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,7 +28,8 @@ public class AuthController {
     @Operation(summary = "Log in with username and password; returns a short-lived bearer token")
     @SecurityRequirements
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return responses.success(authService.login(request.username(), request.password()));
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
+        // client IP = TCP peer address; X-Forwarded-For is not trusted (server.forward-headers-strategy=none)
+        return responses.success(authService.login(request.username(), request.password(), http.getRemoteAddr()));
     }
 }

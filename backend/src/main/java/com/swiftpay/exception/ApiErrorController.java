@@ -1,6 +1,7 @@
 package com.swiftpay.exception;
 
 import com.swiftpay.dto.ErrorResponse;
+import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  * are returned in the same {@link ErrorResponse} shape, without internal details.
  */
 @Slf4j
+@Hidden
 @RestController
 @RequiredArgsConstructor
 public class ApiErrorController implements ErrorController {

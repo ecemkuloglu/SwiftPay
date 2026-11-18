@@ -60,5 +60,12 @@ app:
   jwt:
     secret: ${JWT_SECRET:}                    # required; the app refuses to start without a real secret
     expiration-seconds: ${JWT_EXPIRATION_SECONDS:900}
+  rate-limit:                     # in-memory, per instance (see README)
+    login-failures:               # failed logins per username + client IP
+      capacity: 5
+      window: 15m
+    transfers:                    # POST /transfers per customer
+      capacity: 30
+      window: 1m
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}

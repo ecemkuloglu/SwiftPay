@@ -2,3 +2,10 @@
 app:
   jwt:
     secret: test-only-jwt-secret-0123456789-abcdefghijklmnop
+  rate-limit:                 # small values so the 429 tests run fast
+    login-failures:
+      capacity: 3
+      window: 15m
+    transfers:
+      capacity: 5
+      window: 1m

@@ -10,7 +10,7 @@ import com.swiftpay.dto.LimitsResponse;
 import com.swiftpay.dto.MonthlyStatResponse;
 import com.swiftpay.dto.PageResponse;
 import com.swiftpay.dto.TransferResponse;
-import com.swiftpay.dto.TransferSummary;
+import com.swiftpay.dto.TransferListItem;
 import com.swiftpay.exception.BusinessException;
 import com.swiftpay.exception.ErrorCode;
 import com.swiftpay.support.IntegrationTestBase;
@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import org.springframework.data.domain.Sort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,21 +96,22 @@ class QueryServicesIntegrationTest extends IntegrationTestBase {
         transferAt("2026-05-01T10:00:00Z", "1.00");
         transfer(ecem, source, receiver, "60000.00");                // FAILED
 
-        PageResponse<TransferSummary> page = transferQueryService.list(ecem.getId(), null, null, 0, 10);
+        PageResponse<TransferListItem> page = transferQueryService.list(ecem.getId(), null, null, 0, 10, Sort.Direction.DESC);
 
-        assertThat(page.content()).extracting(TransferSummary::status).containsExactlyInAnyOrder("COMPLETED", "FAILED");
+        assertThat(page.content()).extracting(TransferListItem::status).containsExactlyInAnyOrder("COMPLETED", "FAILED");
         assertThat(page.content()).allSatisfy(s -> assertThat(s.maskedReceiverIban()).contains("****"));
-        assertThat(transferQueryService.list(ali.getId(), null, null, 0, 10).totalElements()).isZero();
+        assertThat(transferQueryService.list(ali.getId(), null, null, 0, 10, Sort.Direction.DESC).totalElements()).isZero();
     }
 
     @Test
-    void invalidRangeAndPagingAreRejectedAndSizeIsCapped() {
+    void invalidRangeAndPagingAreRejected() {
         assertError(() -> transferQueryService.list(ecem.getId(), LocalDate.parse("2026-05-02"),
-                LocalDate.parse("2026-05-01"), 0, 10), ErrorCode.INVALID_DATE_RANGE);
-        assertError(() -> transferQueryService.list(ecem.getId(), null, null, -1, 10), ErrorCode.VALIDATION_ERROR);
-        assertError(() -> transferQueryService.list(ecem.getId(), null, null, 0, 0), ErrorCode.VALIDATION_ERROR);
+                LocalDate.parse("2026-05-01"), 0, 10, Sort.Direction.DESC), ErrorCode.INVALID_DATE_RANGE);
+        assertError(() -> transferQueryService.list(ecem.getId(), null, null, -1, 10, Sort.Direction.DESC), ErrorCode.VALIDATION_ERROR);
+        assertError(() -> transferQueryService.list(ecem.getId(), null, null, 0, 0, Sort.Direction.DESC), ErrorCode.VALIDATION_ERROR);
 
-        assertThat(transferQueryService.list(ecem.getId(), null, null, 0, 500).size()).isEqualTo(100);
+        assertError(() -> transferQueryService.list(ecem.getId(), null, null, 0, 101, Sort.Direction.DESC), ErrorCode.VALIDATION_ERROR);
+        assertThat(transferQueryService.list(ecem.getId(), null, null, 0, 100, Sort.Direction.DESC).size()).isEqualTo(100);
     }
 
     @Test
@@ -118,7 +120,7 @@ class QueryServicesIntegrationTest extends IntegrationTestBase {
             transferAt("2026-05-01T10:00:0" + i + "Z", "1.00");
         }
 
-        PageResponse<TransferSummary> page = transferQueryService.list(ecem.getId(), null, null, 1, 2);
+        PageResponse<TransferListItem> page = transferQueryService.list(ecem.getId(), null, null, 1, 2, Sort.Direction.DESC);
 
         assertThat(page.page()).isEqualTo(1);
         assertThat(page.size()).isEqualTo(2);
@@ -148,7 +150,7 @@ class QueryServicesIntegrationTest extends IntegrationTestBase {
         Long id = jdbc.queryForObject("SELECT id FROM transfer WHERE customer_id = ?", Long.class, ecem.getId());
 
         assertThat(transferQueryService.getById(ecem.getId(), id).failureReason())
-                .isEqualTo("PER_TRANSFER_LIMIT_EXCEEDED");
+                .isEqualTo("Per-transfer limit exceeded.");
     }
 
     // ---- accounts + limits ---------------------------------------------------------------------
@@ -174,8 +176,8 @@ class QueryServicesIntegrationTest extends IntegrationTestBase {
     }
 
     private List<Long> ids(LocalDate start, LocalDate end) {
-        return transferQueryService.list(ecem.getId(), start, end, 0, 100).content().stream()
-                .map(TransferSummary::id).toList();
+        return transferQueryService.list(ecem.getId(), start, end, 0, 100, Sort.Direction.DESC).content().stream()
+                .map(TransferListItem::id).toList();
     }
 
     private static void assertError(Runnable call, ErrorCode expected) {
