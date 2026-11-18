@@ -1,0 +1,4 @@
+# Dev profile: also loads demo customers/accounts from db/migration-dev. Never enable in production.
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/migration-dev

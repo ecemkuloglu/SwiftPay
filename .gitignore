@@ -1,0 +1,19 @@
+# secrets
+.env
+
+# build output
+backend/target/
+frontend/node_modules/
+frontend/dist/
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# logs
+*.log
+
+# personal file, not part of the project
+Ecem_Kuloglu_Cv.pdf

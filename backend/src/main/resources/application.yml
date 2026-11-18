@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: swiftpay
+  autoconfigure:
+    # no in-memory default user (it would log a generated password); JWT auth comes later
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/swiftpay}
+    username: ${POSTGRES_USER:swiftpay}
+    password: ${POSTGRES_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate          # schema is owned by Flyway
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
+
+server:
+  port: 8080
+  error:
+    include-stacktrace: never
+    include-message: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  timezone: ${APP_TIMEZONE:Europe/Istanbul}   # day/month boundaries for limits and statistics
+  currency: TRY
+  limits:
+    per-transfer: 50000.00
+    daily: 100000.00
+    monthly: 500000.00
+  jwt:
+    secret: ${JWT_SECRET:}
+    expiration-seconds: ${JWT_EXPIRATION_SECONDS:900}
