@@ -22,8 +22,8 @@
         <springdoc.version>2.8.17</springdoc.version>
         <jjwt.version>0.13.0</jjwt.version>
         <jacoco.version>0.8.16</jacoco.version>
-        <!-- TODO(test step): set to true so `mvn verify` fails below 80% line coverage -->
-        <jacoco.haltOnFailure>false</jacoco.haltOnFailure>
+        <!-- `mvn verify` fails below 80% line coverage -->
+        <jacoco.haltOnFailure>true</jacoco.haltOnFailure>
     </properties>
 
     <dependencies>
@@ -151,7 +151,7 @@
                     </excludes>
                 </configuration>
             </plugin>
-            <!-- Coverage: report on verify, plus an 80% line-coverage rule (not enforced yet, see jacoco.haltOnFailure) -->
+            <!-- Coverage: report on verify, plus an enforced 80% line-coverage rule -->
             <plugin>
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>

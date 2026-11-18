@@ -14,6 +14,9 @@ public enum ErrorCode {
 
     TRANSFER_NOT_FOUND(404, "Transfer not found."),
     RECEIVER_NOT_FOUND(404, "Receiver account not found."),
+    NOT_FOUND(404, "Resource not found."),
+
+    METHOD_NOT_ALLOWED(405, "HTTP method not allowed for this resource."),
 
     IDEMPOTENCY_KEY_CONFLICT(409, "Idempotency-Key was already used with a different request."),
     REQUEST_IN_PROGRESS(409, "A request with this Idempotency-Key is still being processed."),

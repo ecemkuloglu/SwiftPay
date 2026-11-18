@@ -1,0 +1,4 @@
+# Test-only overrides (loaded after the main application.yml). Not a real secret.
+app:
+  jwt:
+    secret: test-only-jwt-secret-0123456789-abcdefghijklmnop

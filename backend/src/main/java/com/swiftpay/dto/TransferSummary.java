@@ -1,6 +1,5 @@
 package com.swiftpay.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -8,7 +7,7 @@ import java.time.Instant;
 public record TransferSummary(
         Long id,
         String maskedReceiverIban,
-        @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal amount,
+        BigDecimal amount,
         String status,
         Instant createdAt) {
 }

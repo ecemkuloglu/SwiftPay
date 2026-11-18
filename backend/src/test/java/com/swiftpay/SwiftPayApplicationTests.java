@@ -1,6 +1,9 @@
 package com.swiftpay;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.swiftpay.support.PostgresContainerSupport;
 import java.time.Clock;
@@ -8,15 +11,19 @@ import java.time.ZoneId;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 
 /**
- * Starts the full app against real PostgreSQL. Context startup itself proves that Flyway ran and that
- * Hibernate's ddl-auto=validate accepted every entity mapping.
+ * Starts the full app (dev profile) against real PostgreSQL. Context startup itself proves that Flyway ran and
+ * that Hibernate's ddl-auto=validate accepted every entity mapping.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("dev")
 class SwiftPayApplicationTests extends PostgresContainerSupport {
 
@@ -28,6 +35,9 @@ class SwiftPayApplicationTests extends PostgresContainerSupport {
 
     @Autowired
     private Clock clock;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @Test
     void contextLoadsAndMigrationsApply() {
@@ -46,5 +56,14 @@ class SwiftPayApplicationTests extends PostgresContainerSupport {
     @Test
     void clockUsesBusinessTimeZone() {
         assertThat(clock.getZone()).isEqualTo(ZoneId.of("Europe/Istanbul"));
+    }
+
+    @Test
+    void seededUserCanLogIn() throws Exception {
+        mockMvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"ecem\",\"password\":\"Test1234!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.tokenType").value("Bearer"))
+                .andExpect(jsonPath("$.data.accessToken").isString());
     }
 }

@@ -1,6 +1,12 @@
 package com.swiftpay.support;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.swiftpay.domain.Account;
+import com.swiftpay.security.JwtService;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import com.swiftpay.domain.Customer;
 import com.swiftpay.dto.CreateTransferRequest;
 import com.swiftpay.exception.BusinessException;
@@ -26,11 +32,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
  */
 @SpringBootTest(properties = "spring.jpa.properties.hibernate.session_factory.statement_inspector="
         + "com.swiftpay.support.SqlCapture")
+@AutoConfigureMockMvc
 @Import(TestClockConfig.class)
 public abstract class IntegrationTestBase extends PostgresContainerSupport {
 
     protected static final String TEST_PREFIX = "it-";
 
+    @Autowired
+    protected MockMvc mockMvc;
+    @Autowired
+    protected ObjectMapper objectMapper;
+    @Autowired
+    protected JwtService jwtService;
     @Autowired
     protected TransferService transferService;
     @Autowired
@@ -51,7 +64,7 @@ public abstract class IntegrationTestBase extends PostgresContainerSupport {
     @AfterEach
     void deleteOwnRows() {
         String own = "(SELECT id FROM customer WHERE username LIKE '" + TEST_PREFIX + "%')";
-        jdbc.update("DELETE FROM audit_log WHERE customer_id IN " + own);
+        jdbc.update("DELETE FROM audit_log WHERE customer_id IN " + own + " OR customer_id IS NULL");
         jdbc.update("DELETE FROM transfer WHERE customer_id IN " + own);
         jdbc.update("DELETE FROM account WHERE customer_id IN " + own);
         jdbc.update("DELETE FROM customer WHERE id IN " + own);
@@ -89,6 +102,15 @@ public abstract class IntegrationTestBase extends PostgresContainerSupport {
         } catch (BusinessException e) {
             return e.getErrorCode();
         }
+    }
+
+    /** "Bearer &lt;valid token&gt;" for the customer. */
+    protected String bearer(Customer customer) {
+        return "Bearer " + jwtService.issue(customer.getId());
+    }
+
+    protected JsonNode json(MvcResult result) throws Exception {
+        return objectMapper.readTree(result.getResponse().getContentAsString());
     }
 
     protected long countTransfers(Customer customer, String status) {

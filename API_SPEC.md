@@ -113,6 +113,8 @@ Last 6 months including current, newest first, only COMPLETED, empty months retu
 | 401 | `UNAUTHORIZED` / `INVALID_CREDENTIALS` | Missing/expired token, bad login |
 | 403 | `ACCOUNT_NOT_OWNED` | Source account not owned by caller |
 | 404 | `TRANSFER_NOT_FOUND` / `RECEIVER_NOT_FOUND` | Not found or not accessible |
+| 404 | `NOT_FOUND` | Unknown route (authenticated request) |
+| 405 | `METHOD_NOT_ALLOWED` | HTTP method not supported by the route (`Allow` header lists the supported ones) |
 | 409 | `IDEMPOTENCY_KEY_CONFLICT` / `REQUEST_IN_PROGRESS` | Key reused with different payload / still processing |
 | 422 | `INSUFFICIENT_BALANCE` | Balance too low |
 | 422 | `PER_TRANSFER_LIMIT_EXCEEDED` | Per-transfer limit exceeded |

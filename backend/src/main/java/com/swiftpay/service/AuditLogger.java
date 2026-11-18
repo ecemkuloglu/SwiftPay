@@ -44,6 +44,17 @@ public class AuditLogger {
         log.warn("Transfer rejected for customer {}: {}", customerId, details);
     }
 
+    /**
+     * customerId is null for an unknown username. The typed username is not stored either: users sometimes
+     * paste their password into the username field.
+     */
+    public void loginFailed(Long customerId) {
+        String details = customerId == null ? "reason=INVALID_CREDENTIALS unknownUser=true"
+                : "reason=INVALID_CREDENTIALS";
+        save(customerId, null, AuditEventType.LOGIN_FAILED, details);
+        log.warn("Login failed: {}", details);
+    }
+
     private void save(Long customerId, Long transferId, AuditEventType type, String details) {
         auditLogRepository.save(new AuditLog(customerId, transferId, type.name(), traceIdProvider.currentTraceId(),
                 details, clock.instant()));

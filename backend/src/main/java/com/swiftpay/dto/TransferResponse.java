@@ -1,6 +1,5 @@
 package com.swiftpay.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -12,7 +11,7 @@ public record TransferResponse(
         String sourceAccountMaskedIban,
         String receiverIban,
         String maskedReceiverIban,
-        @JsonFormat(shape = JsonFormat.Shape.STRING) BigDecimal amount,
+        BigDecimal amount,
         String currency,
         String description,
         String status,

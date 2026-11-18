@@ -2,7 +2,7 @@ spring:
   application:
     name: swiftpay
   autoconfigure:
-    # no in-memory default user (it would log a generated password); JWT auth comes later
+    # no in-memory default user (it would log a generated password); authentication is JWT only
     exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/swiftpay}
@@ -23,12 +23,23 @@ spring:
     time-zone: UTC
     serialization:
       write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: true
 
 server:
   port: 8080
+  # Client IP = TCP peer address. X-Forwarded-For is NOT trusted. Behind a trusted reverse proxy, switch to
+  # "native" and configure server.tomcat.remoteip.internal-proxies with the proxy addresses.
+  forward-headers-strategy: none
   error:
     include-stacktrace: never
     include-message: never
+    include-exception: false
+    include-binding-errors: never
+
+logging:
+  pattern:
+    level: "%5p [%X{traceId:-}]"
 
 management:
   endpoints:
@@ -47,5 +58,7 @@ app:
     daily: "100000.00"
     monthly: "500000.00"
   jwt:
-    secret: ${JWT_SECRET:}
+    secret: ${JWT_SECRET:}                    # required; the app refuses to start without a real secret
     expiration-seconds: ${JWT_EXPIRATION_SECONDS:900}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
