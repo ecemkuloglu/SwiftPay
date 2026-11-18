@@ -21,7 +21,7 @@ docker compose up --build
 | Backend API | http://localhost:8080/api |
 | Swagger UI | http://localhost:8080/swagger-ui.html |
 | Health | http://localhost:8080/actuator/health |
-| Frontend | http://localhost:3000 (TODO: actual port) |
+| Frontend | http://localhost:3000 (nginx; also proxies `/api` to the backend) |
 
 **Demo credentials** (seeded, dev only)
 
@@ -36,6 +36,12 @@ cd backend
 mvn verify                  # unit + integration tests (Testcontainers needs Docker)
 # coverage report: backend/target/site/jacoco/index.html
 ```
+```bash
+cd frontend
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
+```
+**Frontend dev server:** `cd frontend && npm run dev` → http://localhost:5173 (Vite proxies `/api` to `localhost:8080`, so only the backend needs to run).
 Current line coverage: 98.4 % (JaCoCo; `mvn verify` fails below 80 %).
 
 **Postman:** import `postman/SwiftPay.postman_collection.json`, then run folders 1 → 6 in order. Login requests store the tokens automatically. From the command line (stack running):
@@ -52,7 +58,7 @@ npx newman run postman/SwiftPay.postman_collection.json --env-var baseUrl=http:/
 | Auth | JWT (Spring Security), BCrypt | Stateless, simple |
 | Tests | JUnit 5, Mockito, MockMvc, Testcontainers, JaCoCo | Integration tests run against real PostgreSQL |
 | API docs | springdoc-openapi | Generated from code |
-| Frontend | Vite, React, TypeScript, TanStack Query, React Hook Form + Zod | TODO |
+| Frontend | Vite, React 19, TypeScript (strict), React Router, TanStack Query, React Hook Form + Zod, plain CSS; tests: Vitest, React Testing Library, MSW | Server state and cache invalidation from TanStack Query; schema validation shared between form and types; plain CSS keeps the bundle and the dependency surface small and needs no inline styles under the CSP |
 
 ## 3. Design
 
@@ -110,7 +116,9 @@ The trace id is also returned as `X-Trace-Id` and appears in all log lines (MDC)
 - Generic login error message; no stack traces or internal details in responses.
 - Sensitive data: IBANs masked in logs and list responses; no passwords or tokens in logs.
 - Secrets via environment variables (`.env.example`), nothing secret committed.
-- Dependency scan: TODO (OWASP dependency-check / `npm audit` result).
+- Frontend: the token lives in memory + `sessionStorage` (never `localStorage`); every user-provided value is rendered as text (no `dangerouslySetInnerHTML`, enforced by ESLint); nothing personal goes into URLs; the API client never logs.
+- nginx (frontend container) runs as a non-root user and sends `Content-Security-Policy` (`'self'` only, no inline scripts or styles), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and a restrictive `Permissions-Policy`.
+- Dependency scan: `npm audit --omit=dev` → 0 vulnerabilities in the frontend's production dependencies. Dev tooling has one open advisory chain (`picomatch` ReDoS, GHSA-fc5q-39xc-vjpf, all versions up to the latest 4.0.7) reached through Vite / Vitest / typescript-eslint; it only affects build-time glob patterns written by developers. Backend: TODO (OWASP dependency-check).
 
 ## 5. Assumptions
 > Highlighted as requested. Adjust to match what you actually implemented.
@@ -134,6 +142,10 @@ The trace id is also returned as `X-Trace-Id` and appears in all log lines (MDC)
 - **`Idempotency-Key` may be any non-blank string of at most 64 characters (a UUID is recommended).**
 - **The transfer list filters `startDate`/`endDate` on `createdAt` (FAILED transfers have no `completedAt`); both dates are inclusive Istanbul calendar days. `size` above 100 is capped to 100.**
 - **IBANs are masked everywhere as `TR33 **** **** **** **** 1326` (API_SPEC's shorter list example `TR64 **** 0002` is treated as illustrative).**
+- **Frontend session: the access token is kept in memory and in `sessionStorage`, never in `localStorage`. Trade-off: it survives a page reload within the same tab, but is lost when the tab is closed and is not shared between tabs (no refresh tokens, as in the spec). After a `401` the session is cleared and the login page shows "Session expired".**
+- **Frontend idempotency: one `Idempotency-Key` (`crypto.randomUUID()`) per logical transfer. It is reused when the same payload is retried after a network error, a 5xx, `409 REQUEST_IN_PROGRESS`, `429` or `400`; a new key is generated after a success, after a definitive business error (422 / 403 / 404 / `IDEMPOTENCY_KEY_CONFLICT`, whose FAILED result would otherwise be replayed forever) and whenever the user changes the payload.**
+- **Amounts are entered as digits with one optional decimal separator (`1500`, `1500,5`, `1500.50`); thousands separators are not accepted, so `1.500` can never be misread. Money is formatted tr-TR style (`12.450,00 TRY`) with string operations; it is never converted to a float (only the limit progress bars use a number, for their visual width).**
+- **Transfer ids may have gaps: PostgreSQL consumes a sequence value even when `INSERT ... ON CONFLICT DO NOTHING` inserts nothing (an idempotent replay).**
 - **Two error codes were added to API_SPEC.md (with approval): `404 NOT_FOUND` for an unknown route and `405 METHOD_NOT_ALLOWED` (with an `Allow` header). Without a token, an unknown route answers `401` first, because authentication runs before routing.**
 - **Every bad token (missing, malformed, expired, tampered, wrongly signed, unsigned, or belonging to a deleted customer) gives the same `401 UNAUTHORIZED`. The JWT filter checks on each request that the customer still exists. An access-denied decision also answers `401 UNAUTHORIZED` (there are no roles, so it is practically unreachable).**
 - **Unknown JSON fields in a request are rejected with `400 VALIDATION_ERROR` (catches typos such as `ammount`). An unsupported `Content-Type` is also reported as `400 VALIDATION_ERROR`, because the spec has no 415 code.**
@@ -176,7 +188,13 @@ Required by the case: agentic coding tools were used.
 ## 9. Project structure
 ```
 backend/      Spring Boot application (src/main/resources/db/migration = Flyway)
-frontend/     React application
+frontend/     React application (Vite); Dockerfile + nginx.conf (SPA + /api proxy + security headers)
+  src/api/        single API client + one file per resource
+  src/types/      API types hand-written from API_SPEC.md
+  src/auth/       AuthContext, ProtectedRoute, token storage
+  src/pages/      Login, Dashboard, New transfer, Transfers, Transfer detail
+  src/components/ shared UI (account card, limit bar, statistics table, error alert)
+  src/utils/      money, IBAN, dates, error messages
 postman/      Postman collection
 docker-compose.yml, .env.example
 API_SPEC.md   API contract
