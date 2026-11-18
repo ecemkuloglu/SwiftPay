@@ -28,9 +28,15 @@ spring:
 
 server:
   port: 8080
-  # Client IP = TCP peer address. X-Forwarded-For is NOT trusted. Behind a trusted reverse proxy, switch to
-  # "native" and configure server.tomcat.remoteip.internal-proxies with the proxy addresses.
-  forward-headers-strategy: none
+  # Client IP: X-Forwarded-For is honoured ONLY when the TCP peer matches TRUSTED_PROXIES (a regex, e.g. the
+  # nginx container's fixed IP in docker-compose). Default: trust nobody, so the client IP is the TCP peer and
+  # a client-sent X-Forwarded-For is ignored. nginx overwrites the header with the real peer address.
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: ${TRUSTED_PROXIES:}
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
   error:
     include-stacktrace: never
     include-message: never

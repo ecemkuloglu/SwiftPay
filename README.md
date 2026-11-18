@@ -105,7 +105,7 @@ The trace id is also returned as `X-Trace-Id` and appears in all log lines (MDC)
 - JWT authentication (HS256), BCrypt password hashing, 15-minute token expiry (`JWT_EXPIRATION_SECONDS=900`).
 - Every query is scoped to the authenticated customer; ownership is checked server-side (IDOR tests included).
 - Rate limiting (Bucket4j token buckets in a bounded Caffeine map): 5 failed logins per username + client IP per 15 minutes (`429 TOO_MANY_ATTEMPTS`, a successful login resets the count) and 30 `POST /transfers` per customer per minute (`429 TOO_MANY_REQUESTS`); both send `Retry-After`. Limits are configurable under `app.rate-limit`.
-- Client IP = TCP peer address; `X-Forwarded-For` is ignored (`server.forward-headers-strategy=none`). Behind a trusted reverse proxy, enable `native` and list the proxies in `server.tomcat.remoteip.internal-proxies`.
+- Client IP for the login limit: `X-Forwarded-For` is honoured only when the TCP peer matches `TRUSTED_PROXIES` (Tomcat `RemoteIpValve`). In docker-compose that is only the nginx container (fixed IP `172.28.0.10`), and nginx overwrites the header with the real peer address, so clients cannot spoof it; a direct caller on `:8080` is identified by its TCP address. With `TRUSTED_PROXIES` unset, no proxy is trusted.
 - Restricted CORS (explicit origin), security headers.
 - Generic login error message; no stack traces or internal details in responses.
 - Sensitive data: IBANs masked in logs and list responses; no passwords or tokens in logs.

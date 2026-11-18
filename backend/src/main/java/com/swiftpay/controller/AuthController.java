@@ -29,7 +29,7 @@ public class AuthController {
     @SecurityRequirements
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
-        // client IP = TCP peer address; X-Forwarded-For is not trusted (server.forward-headers-strategy=none)
+        // client IP: TCP peer, or X-Forwarded-For when the peer is a trusted proxy (TRUSTED_PROXIES, Tomcat RemoteIpValve)
         return responses.success(authService.login(request.username(), request.password(), http.getRemoteAddr()));
     }
 }
