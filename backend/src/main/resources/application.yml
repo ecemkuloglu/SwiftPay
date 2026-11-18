@@ -42,10 +42,10 @@ management:
 app:
   timezone: ${APP_TIMEZONE:Europe/Istanbul}   # day/month boundaries for limits and statistics
   currency: TRY
-  limits:
-    per-transfer: 50000.00
-    daily: 100000.00
-    monthly: 500000.00
+  limits:                         # TRY; quoted so YAML does not turn them into floats
+    per-transfer: "50000.00"
+    daily: "100000.00"
+    monthly: "500000.00"
   jwt:
     secret: ${JWT_SECRET:}
     expiration-seconds: ${JWT_EXPIRATION_SECONDS:900}

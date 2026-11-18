@@ -25,4 +25,9 @@ public final class Money {
         }
         return amount.setScale(SCALE, RoundingMode.UNNECESSARY);
     }
+
+    /** Returns {@code value} at scale 2 (e.g. a DB sum of 0 becomes 0.00); null becomes 0.00. */
+    public static BigDecimal normalize(BigDecimal value) {
+        return (value == null ? BigDecimal.ZERO : value).setScale(SCALE, RoundingMode.UNNECESSARY);
+    }
 }

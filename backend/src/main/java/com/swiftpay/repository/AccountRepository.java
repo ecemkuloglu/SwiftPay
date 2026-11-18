@@ -16,6 +16,9 @@ public interface AccountRepository extends JpaRepository<Account, Long> {
     @Query("select a from Account a where a.customerId = :customerId order by a.id asc")
     List<Account> findAllByCustomerId(@Param("customerId") Long customerId);
 
+    /** Ownership check that does not load the entity into the persistence context. */
+    boolean existsByIdAndCustomerId(Long id, Long customerId);
+
     /** Receiver lookup without a lock. */
     @Query("select a.id from Account a where a.iban = :iban")
     Optional<Long> findIdByIban(@Param("iban") String iban);
