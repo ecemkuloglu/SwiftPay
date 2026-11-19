@@ -1,19 +1,19 @@
 import type { LimitUsage } from '../types/api';
 import { formatMoney, toBarValue } from '../utils/money';
 
-/** Used / limit / remaining. Numbers are used only for the bar's visual fill (native <progress>, no inline style). */
+/** Remaining on top, used / limit below. Numbers are used only for the bar's visual fill (native <progress>). */
 export function LimitBar({ label, usage }: { label: string; usage: LimitUsage }) {
   const id = `limit-${label.toLowerCase().replace(/\s+/g, '-')}`;
   return (
     <div className="limit">
-      <div className="limit-header">
+      <div className="limit-row">
         <span id={id}>{label}</span>
-        <span className="muted">
-          {formatMoney(usage.used)} / {formatMoney(usage.limit)}
-        </span>
+        <b>{formatMoney(usage.remaining)} left</b>
       </div>
       <progress aria-labelledby={id} value={toBarValue(usage.used)} max={toBarValue(usage.limit) || 1} />
-      <p className="muted small">Remaining: {formatMoney(usage.remaining)}</p>
+      <p className="muted small">
+        {formatMoney(usage.used)} of {formatMoney(usage.limit)} used
+      </p>
     </div>
   );
 }

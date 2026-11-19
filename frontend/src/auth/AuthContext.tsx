@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (username: string, password: string) => {
     const response = await loginRequest({ username, password });
-    tokenStorage.set(response.accessToken, response.expiresIn);
+    tokenStorage.set(response.accessToken, response.expiresIn, username);
     setSessionExpired(false);
     setToken(response.accessToken);
   }, []);

@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
 import { NewTransferPage } from './pages/NewTransferPage';
+import { StatisticsPage } from './pages/StatisticsPage';
 import { TransferDetailPage } from './pages/TransferDetailPage';
 import { TransfersPage } from './pages/TransfersPage';
 
@@ -17,6 +18,7 @@ export function AppRoutes() {
           <Route path="transfers" element={<TransfersPage />} />
           <Route path="transfers/new" element={<NewTransferPage />} />
           <Route path="transfers/:id" element={<TransferDetailPage />} />
+          <Route path="statistics" element={<StatisticsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

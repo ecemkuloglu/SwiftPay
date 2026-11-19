@@ -4,9 +4,7 @@ import { Link } from 'react-router';
 import { queryKeys } from '../api/queryKeys';
 import { listTransfers, type TransferListQuery } from '../api/transfers';
 import { ErrorAlert } from '../components/ErrorAlert';
-import { StatusBadge } from '../components/StatusBadge';
-import { formatDateTime } from '../utils/dates';
-import { formatMoney } from '../utils/money';
+import { TransferTable } from '../components/TransferTable';
 
 const PAGE_SIZE = 10;
 
@@ -48,16 +46,19 @@ export function TransfersPage() {
   const data = transfers.data;
   return (
     <>
-      <div className="page-header">
-        <h1>Transfers</h1>
+      <div className="page-top">
+        <div>
+          <p className="kicker">Customer only</p>
+          <h1>Past transfers</h1>
+        </div>
         <Link className="button" to="/transfers/new">
           New transfer
         </Link>
       </div>
 
-      <form className="card filter" onSubmit={applyFilter} aria-label="Filter by date">
+      <form className="filters" onSubmit={applyFilter} aria-label="Filter by date">
         <div className="field">
-          <label htmlFor="startDate">From</label>
+          <label htmlFor="startDate">Start date</label>
           <input
             id="startDate"
             type="date"
@@ -66,7 +67,7 @@ export function TransfersPage() {
           />
         </div>
         <div className="field">
-          <label htmlFor="endDate">To</label>
+          <label htmlFor="endDate">End date</label>
           <input
             id="endDate"
             type="date"
@@ -80,69 +81,43 @@ export function TransfersPage() {
         </button>
       </form>
 
-      <div aria-live="polite">
-        {transfers.isPending && <p className="muted">Loading transfers…</p>}
-        {transfers.isError && <ErrorAlert error={transfers.error} />}
-        {data && data.content.length === 0 && <p className="muted">No transfers found.</p>}
-      </div>
+      <section className="card" aria-label="Transfers">
+        <div aria-live="polite">
+          {transfers.isPending && <p className="muted">Loading transfers…</p>}
+          {transfers.isError && <ErrorAlert error={transfers.error} />}
+        </div>
 
-      {data && data.content.length > 0 && !transfers.isError && (
-        <>
-          <table className="table">
-            <thead>
-              <tr>
-                <th scope="col">Date</th>
-                <th scope="col">Receiver</th>
-                <th scope="col" className="num">
-                  Amount
-                </th>
-                <th scope="col">Status</th>
-                <th scope="col">
-                  <span className="visually-hidden">Details</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.content.map((t) => (
-                <tr key={t.id}>
-                  <td>{formatDateTime(t.createdAt)}</td>
-                  <td className="mono">{t.maskedReceiverIban}</td>
-                  <td className="num">{formatMoney(t.amount)}</td>
-                  <td>
-                    <StatusBadge status={t.status} />
-                  </td>
-                  <td>
-                    <Link to={`/transfers/${t.id}`} aria-label={`Details of transfer ${t.id}`}>
-                      Details
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <nav className="pagination" aria-label="Pagination">
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </button>
-            <span>
-              Page {data.page + 1} of {Math.max(data.totalPages, 1)} ({data.totalElements} transfers)
-            </span>
-            <button
-              type="button"
-              className="button-secondary"
-              disabled={page + 1 >= data.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </button>
-          </nav>
-        </>
-      )}
+        {data && !transfers.isError && (
+          <>
+            <TransferTable items={data.content} emptyText="No transfers found." />
+            {data.content.length > 0 && (
+              <nav className="pagination" aria-label="Pagination">
+                <span>
+                  {data.totalElements} transfers · page {data.page + 1} of {Math.max(data.totalPages, 1)}
+                </span>
+                <div>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={page === 0}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={page + 1 >= data.totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </nav>
+            )}
+          </>
+        )}
+      </section>
     </>
   );
 }

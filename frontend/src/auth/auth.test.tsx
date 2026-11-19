@@ -29,7 +29,7 @@ describe('authentication', () => {
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(screen.getByRole('button', { name: 'Signing in…' })).toBeDisabled();
 
-    expect(await screen.findByRole('heading', { name: 'Transfers' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Past transfers' })).toBeInTheDocument();
     expect(body).toEqual({ username: 'ecem', password: 'Test1234!' });
     expect(tokenStorage.get()).toBe('jwt-from-login');
     expect(sessionStorage.getItem('swiftpay.session')).toContain('jwt-from-login');
@@ -62,7 +62,9 @@ describe('authentication', () => {
   it('a signed-in user visiting /login is redirected to the dashboard', async () => {
     renderApp('/login');
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Careful money, moved in seconds.' }),
+    ).toBeInTheDocument();
   });
 
   it('a 401 on a protected call clears the session and shows "Session expired"', async () => {
@@ -87,7 +89,7 @@ describe('authentication', () => {
     await user.type(screen.getByLabelText('Password'), 'Test1234!');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    expect(await screen.findByRole('heading', { name: 'Transfers' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Past transfers' })).toBeInTheDocument();
     expect(screen.queryByText(/Session expired/)).not.toBeInTheDocument();
   });
 

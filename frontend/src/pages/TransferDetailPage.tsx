@@ -23,10 +23,14 @@ export function TransferDetailPage() {
     !validId || (transfer.error instanceof ApiError && transfer.error.code === 'TRANSFER_NOT_FOUND');
   if (notFound) {
     return (
-      <section>
-        <h1>Transfer not found</h1>
+      <section className="result-card tone-network" aria-labelledby="not-found-title">
+        <h1 id="not-found-title">Transfer not found</h1>
         <p>The transfer does not exist or is not yours.</p>
-        <Link to="/transfers">Back to transfers</Link>
+        <div className="actions">
+          <Link className="button button-secondary" to="/transfers">
+            Back to transfers
+          </Link>
+        </div>
       </section>
     );
   }
@@ -39,32 +43,35 @@ export function TransferDetailPage() {
 
   const t = transfer.data;
   return (
-    <section aria-labelledby="detail-title">
-      <div className="page-header">
-        <h1 id="detail-title">Transfer #{t.id}</h1>
+    <>
+      <Link className="button button-secondary back" to="/transfers">
+        ← All transfers
+      </Link>
+      <section className="receipt" aria-labelledby="detail-title">
+        <h1 id="detail-title" className="kicker">
+          Transfer #{t.id}
+        </h1>
+        <p className="amount">{formatMoney(t.amount, t.currency)}</p>
         <StatusBadge status={t.status} />
-      </div>
-      <dl className="card details">
-        <dt>Amount</dt>
-        <dd>{formatMoney(t.amount, t.currency)}</dd>
-        <dt>From</dt>
-        <dd className="mono">{t.sourceAccountMaskedIban}</dd>
-        <dt>To</dt>
-        <dd className="mono">{groupIban(t.receiverIban)}</dd>
-        <dt>Description</dt>
-        <dd>{t.description || '–'}</dd>
-        <dt>Created</dt>
-        <dd>{formatDateTime(t.createdAt)}</dd>
-        <dt>Completed</dt>
-        <dd>{formatDateTime(t.completedAt)}</dd>
-        {t.failureReason && (
-          <>
-            <dt>Failure reason</dt>
-            <dd>{t.failureReason}</dd>
-          </>
-        )}
-      </dl>
-      <Link to="/transfers">Back to transfers</Link>
-    </section>
+        <dl className="kv">
+          <dt>From</dt>
+          <dd className="mono">{t.sourceAccountMaskedIban}</dd>
+          <dt>To</dt>
+          <dd className="mono">{groupIban(t.receiverIban)}</dd>
+          <dt>Description</dt>
+          <dd>{t.description || '–'}</dd>
+          <dt>Created</dt>
+          <dd>{formatDateTime(t.createdAt)}</dd>
+          <dt>Completed</dt>
+          <dd>{formatDateTime(t.completedAt)}</dd>
+          {t.failureReason && (
+            <>
+              <dt>Failure reason</dt>
+              <dd>{t.failureReason}</dd>
+            </>
+          )}
+        </dl>
+      </section>
+    </>
   );
 }

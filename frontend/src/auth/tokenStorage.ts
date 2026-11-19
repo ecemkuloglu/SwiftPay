@@ -7,6 +7,7 @@ const KEY = 'swiftpay.session';
 interface StoredSession {
   token: string;
   expiresAt: number; // epoch millis
+  username?: string; // as typed at login, for display only
 }
 
 let current: StoredSession | null = read();
@@ -32,8 +33,13 @@ export const tokenStorage = {
     return current?.token ?? null;
   },
 
-  set(token: string, expiresInSeconds: number): void {
-    current = { token, expiresAt: Date.now() + expiresInSeconds * 1000 };
+  /** Username of the current session, for display only (the server identifies the customer by the token). */
+  username(): string | null {
+    return tokenStorage.get() ? (current?.username ?? null) : null;
+  },
+
+  set(token: string, expiresInSeconds: number, username?: string): void {
+    current = { token, expiresAt: Date.now() + expiresInSeconds * 1000, username };
     try {
       sessionStorage.setItem(KEY, JSON.stringify(current));
     } catch {

@@ -7,16 +7,52 @@ import { renderApp } from '../test/renderApp';
 import { server } from '../test/server';
 import { render } from '@testing-library/react';
 
-describe('Dashboard', () => {
-  it('shows accounts with masked IBANs, limits and the 6-row statistics table in API order', async () => {
+describe('Overview', () => {
+  it('shows accounts with masked IBANs, limits and the latest 4 transfers', async () => {
+    let url: URL | undefined;
+    server.use(
+      http.get('*/api/transfers', ({ request }) => {
+        url = new URL(request.url);
+        return ok(listPage([]));
+      }),
+    );
     renderApp('/');
 
     expect(await screen.findByText('250.000,00 TRY')).toBeInTheDocument();
     expect(screen.getByText('TR62 **** **** **** **** 1001')).toBeInTheDocument();
     expect(screen.queryByText('TR620006100000000000001001')).not.toBeInTheDocument(); // full IBAN not shown
-    expect(await screen.findByText('35.000,00 TRY / 100.000,00 TRY')).toBeInTheDocument();
-    expect(screen.getByText('Remaining: 65.000,00 TRY')).toBeInTheDocument();
+    expect(await screen.findByText('65.000,00 TRY left')).toBeInTheDocument();
+    expect(screen.getByText('35.000,00 TRY of 100.000,00 TRY used')).toBeInTheDocument();
+    expect(screen.getByText('Per transfer cap 50.000,00 TRY')).toBeInTheDocument();
+    expect(await screen.findByText('No transfers yet.')).toBeInTheDocument();
+    expect(url?.searchParams.get('size')).toBe('4');
+  });
+});
 
+describe('Layout', () => {
+  it('marks the current section and shows the daily remaining limit', async () => {
+    renderApp('/transfers/101');
+
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'Past transfers' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: 'New transfer' })).not.toHaveAttribute('aria-current');
+    expect(await screen.findByText(/Daily remaining 65\.000,00 TRY/)).toBeInTheDocument();
+  });
+
+  it('does not mark "Past transfers" on the new transfer page', async () => {
+    renderApp('/transfers/new');
+
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(nav).getByRole('link', { name: 'New transfer' })).toHaveAttribute('aria-current', 'page');
+    expect(within(nav).getByRole('link', { name: 'Past transfers' })).not.toHaveAttribute('aria-current');
+  });
+});
+
+describe('Monthly statistics page', () => {
+  it('shows the 6-row statistics table in API order', async () => {
+    renderApp('/statistics');
+
+    expect(await screen.findByRole('heading', { name: 'Monthly transfer statistics' })).toBeInTheDocument();
     const rows = within(await screen.findByRole('table'))
       .getAllByRole('row')
       .slice(1);
@@ -77,7 +113,7 @@ describe('Transfers list', () => {
     expect(await screen.findByText('14.05.2026 12:30')).toBeInTheDocument(); // Istanbul time
     expect(screen.getByText('1.500,00 TRY')).toBeInTheDocument();
     expect(screen.getByText('Failed')).toBeInTheDocument();
-    expect(screen.getByText('Page 1 of 2 (12 transfers)')).toBeInTheDocument();
+    expect(screen.getByText('12 transfers · page 1 of 2')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Details of transfer 7' })).toHaveAttribute(
       'href',
       '/transfers/7',
@@ -103,8 +139,8 @@ describe('Transfers list', () => {
     const { user } = renderApp('/transfers');
     await screen.findByText('No transfers found.');
 
-    await user.type(screen.getByLabelText('From'), '2026-05-31');
-    await user.type(screen.getByLabelText('To'), '2026-05-01');
+    await user.type(screen.getByLabelText('Start date'), '2026-05-31');
+    await user.type(screen.getByLabelText('End date'), '2026-05-01');
     await user.click(screen.getByRole('button', { name: 'Apply' }));
 
     expect(await screen.findByText('The start date must not be after the end date.')).toBeInTheDocument();

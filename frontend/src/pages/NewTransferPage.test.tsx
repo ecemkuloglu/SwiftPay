@@ -40,7 +40,7 @@ async function fillForm(user: UserEvent, { iban = ALI_IBAN, amount = '1500', des
   }
 }
 
-const submit = (user: UserEvent) => user.click(screen.getByRole('button', { name: /send transfer|retry/i }));
+const submit = (user: UserEvent) => user.click(screen.getByRole('button', { name: /send now|retry/i }));
 
 describe('New transfer form', () => {
   it('shows client-side validation messages and sends nothing', async () => {
@@ -74,7 +74,7 @@ describe('New transfer form', () => {
     });
     await submit(user);
 
-    expect(await screen.findByRole('heading', { name: 'Transfer completed' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Transfer sent' })).toBeInTheDocument();
     expect(calls).toHaveLength(1);
     expect(calls[0]?.body).toEqual({
       sourceAccountId: 1,
@@ -85,10 +85,8 @@ describe('New transfer form', () => {
     expect(calls[0]?.key).toMatch(/^[0-9a-f-]{36}$/);
     expect(screen.getByText('1.500,00 TRY')).toBeInTheDocument();
     expect(screen.getByText('TR69 **** **** **** **** 2001')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View transfer details' })).toHaveAttribute(
-      'href',
-      '/transfers/101',
-    );
+    expect(screen.getByText('TR62 **** **** **** **** 1001')).toBeInTheDocument(); // "From"
+    expect(screen.getByRole('link', { name: 'Open details' })).toHaveAttribute('href', '/transfers/101');
     expect(screen.queryByText(/already processed/)).not.toBeInTheDocument();
     for (const key of [['accounts'], ['limits'], ['transfers'], ['statistics']]) {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: key });
@@ -113,10 +111,11 @@ describe('New transfer form', () => {
 
     await fillForm(user);
     await submit(user);
-    await user.click(await screen.findByRole('button', { name: 'New transfer' }));
+    await user.click(await screen.findByRole('button', { name: 'Send another' }));
+    expect(screen.getByLabelText('Receiver IBAN')).toHaveValue('');
     await fillForm(user);
     await submit(user);
-    await screen.findByRole('heading', { name: 'Transfer completed' });
+    await screen.findByRole('heading', { name: 'Transfer sent' });
 
     expect(calls).toHaveLength(2);
     expect(calls[1]?.key).not.toBe(calls[0]?.key);
@@ -132,10 +131,12 @@ describe('New transfer form', () => {
     await fillForm(user);
     await submit(user);
     await screen.findByText('Something went wrong. Please try again later.');
-    await submit(user);
+    await submit(user); // "Retry" on the error card resends as it is
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]?.key).toBe(calls[0]?.key);
 
+    await user.click(await screen.findByRole('button', { name: 'Edit transfer' }));
+    expect(screen.getByLabelText('Receiver IBAN')).toHaveValue(ALI_IBAN); // the form keeps what was typed
     await user.clear(screen.getByLabelText('Amount (TRY)'));
     await user.type(screen.getByLabelText('Amount (TRY)'), '1600');
     await submit(user);
@@ -180,6 +181,8 @@ describe('New transfer form', () => {
     await fillForm(user);
     await submit(user);
     await screen.findByText(/does not have enough balance/);
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
     await submit(user);
 
     await waitFor(() => expect(calls).toHaveLength(2));
@@ -194,11 +197,11 @@ describe('New transfer form', () => {
     const { user } = renderApp('/transfers/new');
 
     await fillForm(user);
-    const button = screen.getByRole('button', { name: 'Send transfer' });
+    const button = screen.getByRole('button', { name: 'Send now' });
     await user.dblClick(button);
     fireEvent.submit(button.closest('form') as HTMLFormElement); // a third, programmatic submit
 
-    expect(await screen.findByRole('heading', { name: 'Transfer completed' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Transfer sent' })).toBeInTheDocument();
     expect(calls).toHaveLength(1);
   });
 
@@ -213,7 +216,7 @@ describe('New transfer form', () => {
     await submit(user);
 
     expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
-    await screen.findByRole('heading', { name: 'Transfer completed' });
+    await screen.findByRole('heading', { name: 'Transfer sent' });
   });
 
   it.each([
@@ -277,6 +280,8 @@ describe('New transfer form', () => {
 
     await fillForm(user);
     await submit(user);
+    await screen.findByRole('heading', { name: 'This transfer cannot be sent' });
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
 
     expect(await screen.findByText('must be greater than 0')).toBeInTheDocument();
     expect(screen.getByLabelText('Amount (TRY)')).toHaveAttribute('aria-invalid', 'true');
@@ -293,5 +298,35 @@ describe('New transfer form', () => {
 
     expect(await screen.findByText('<img src=x onerror=alert(1)>')).toBeInTheDocument();
     expect(container.querySelector('img')).toBeNull();
+  });
+
+  it.each([
+    [422, 'DAILY_LIMIT_EXCEEDED', 'Transfer limit exceeded', 'tone-limit'],
+    [422, 'INSUFFICIENT_BALANCE', 'Not enough balance', 'tone-balance'],
+    [404, 'RECEIVER_NOT_FOUND', 'Receiver not found', 'tone-validation'],
+    [409, 'REQUEST_IN_PROGRESS', 'Still processing', 'tone-duplicate'],
+    [503, 'INTERNAL_ERROR', 'Transfer failed', 'tone-network'],
+  ])('%i %s replaces the form with a titled error card', async (status, code, title, tone) => {
+    capturePosts(() => apiError(status, code));
+    const { user } = renderApp('/transfers/new');
+
+    await fillForm(user);
+    await submit(user);
+
+    const heading = await screen.findByRole('heading', { name: title });
+    expect(heading.closest('[role="alert"]')).toHaveClass('result-card', tone);
+    expect(screen.getByText(code.replaceAll('_', ' '))).toBeInTheDocument();
+    expect(screen.queryByLabelText('Receiver IBAN')).not.toBeInTheDocument();
+  });
+
+  it('shows the selected account and the remaining limits next to the form', async () => {
+    const { user } = renderApp('/transfers/new');
+
+    expect(await screen.findByText('Choose an account to see its balance.')).toBeInTheDocument();
+    expect(await screen.findByText('65.000,00 TRY')).toBeInTheDocument(); // daily remaining
+    await screen.findByRole('option', { name: /TR62 \*{4}/ });
+    await user.selectOptions(screen.getByLabelText('Source account'), '1');
+
+    expect(screen.getByRole('heading', { name: '250.000,00 TRY available' })).toBeInTheDocument();
   });
 });

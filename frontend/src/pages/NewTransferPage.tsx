@@ -4,12 +4,15 @@ import { useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router';
 import { z } from 'zod';
-import { getAccounts } from '../api/accounts';
+import { getAccounts, getLimits } from '../api/accounts';
 import { ApiError } from '../api/client';
 import { queryKeys } from '../api/queryKeys';
 import { createTransfer, type CreateTransferResult } from '../api/transfers';
 import { ErrorAlert } from '../components/ErrorAlert';
 import type { CreateTransferRequest } from '../types/api';
+import { formatDateTime } from '../utils/dates';
+import { describeError } from '../utils/errorMessages';
+import { presentTransferError } from '../utils/errorPresentation';
 import { isValidTrIban, normalizeIban } from '../utils/iban';
 import { formatMoney, parseAmountInput } from '../utils/money';
 
@@ -74,6 +77,7 @@ function toRequest(values: FormValues): CreateTransferRequest {
 export function NewTransferPage() {
   const queryClient = useQueryClient();
   const accounts = useQuery({ queryKey: queryKeys.accounts, queryFn: getAccounts });
+  const limits = useQuery({ queryKey: queryKeys.limits, queryFn: getLimits });
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: EMPTY,
@@ -136,126 +140,211 @@ export function NewTransferPage() {
     setOutcome(null);
   };
 
+  /** Back to the filled-in form; the idempotency rules above still decide whether the key is reused. */
+  const backToForm = () => setOutcome(null);
+
+  const description = watch('description');
+  const sourceId = watch('sourceAccountId');
+  const errors = formState.errors;
+
   if (outcome?.kind === 'success') {
-    const { transfer } = outcome.result;
+    const { transfer, replayed } = outcome.result;
+    const source = accounts.data?.find((a) => a.id === transfer.sourceAccountId);
     return (
-      <section aria-labelledby="result-title">
-        <h1 id="result-title">Transfer completed</h1>
-        <div className="card" role="status" aria-live="polite">
-          {outcome.result.replayed && (
-            <p className="alert alert-info">This transfer was already processed. No new transfer was made.</p>
+      <section className="receipt" aria-labelledby="result-title" role="status" aria-live="polite">
+        <p className="kicker">{replayed ? 'Already processed' : 'Completed'}</p>
+        <h1 id="result-title">Transfer sent</h1>
+        {replayed ? (
+          <p className="alert alert-info">This transfer was already processed. No new transfer was made.</p>
+        ) : (
+          <p className="muted">The amount left your account once, and only once.</p>
+        )}
+        <dl className="kv">
+          <dt>Amount</dt>
+          <dd>{formatMoney(transfer.amount, transfer.currency)}</dd>
+          <dt>To</dt>
+          <dd className="mono">{transfer.maskedReceiverIban}</dd>
+          {source && (
+            <>
+              <dt>From</dt>
+              <dd className="mono">{source.maskedIban}</dd>
+            </>
           )}
-          <dl className="details">
-            <dt>Amount</dt>
-            <dd>{formatMoney(transfer.amount, transfer.currency)}</dd>
-            <dt>Receiver</dt>
-            <dd className="mono">{transfer.maskedReceiverIban}</dd>
-            <dt>Transfer ID</dt>
-            <dd>{transfer.id}</dd>
-          </dl>
-          <p>
-            <Link to={`/transfers/${transfer.id}`}>View transfer details</Link>
-          </p>
+          <dt>When</dt>
+          <dd>{formatDateTime(transfer.createdAt)}</dd>
+          <dt>Description</dt>
+          <dd>{transfer.description || '–'}</dd>
+          <dt>Transfer ID</dt>
+          <dd>{transfer.id}</dd>
+        </dl>
+        <div className="actions">
+          <Link className="button" to={`/transfers/${transfer.id}`}>
+            Open details
+          </Link>
+          <Link className="button button-secondary" to="/transfers">
+            All transfers
+          </Link>
+          <button type="button" className="button-secondary" onClick={startNew}>
+            Send another
+          </button>
         </div>
-        <button type="button" onClick={startNew}>
-          New transfer
-        </button>
       </section>
     );
   }
 
-  const description = watch('description');
-  const errors = formState.errors;
-  const inProgress =
-    outcome?.kind === 'error' &&
-    outcome.error instanceof ApiError &&
-    outcome.error.code === 'REQUEST_IN_PROGRESS';
+  if (outcome?.kind === 'error') {
+    const { code, message, traceId } = describeError(outcome.error);
+    const { title, tone, label } = presentTransferError(code);
+    // Retryable outcomes can be sent again as they are (same payload, same key); the rest go back to the form.
+    const canRetry = keepsIdempotencyKey(outcome.error) && code !== 'VALIDATION_ERROR';
+    return (
+      <section className={`result-card tone-${tone}`} role="alert" aria-labelledby="error-title">
+        <p className="kicker">{label}</p>
+        <h1 id="error-title">{title}</h1>
+        <p>{message}</p>
+        {traceId && <p className="support-code">Support code: {traceId}</p>}
+        <div className="actions">
+          {canRetry ? (
+            <>
+              <button type="button" disabled={submitting} onClick={() => void handleSubmit(onSubmit)()}>
+                {submitting ? 'Sending…' : 'Retry'}
+              </button>
+              <button type="button" className="button-secondary" onClick={backToForm}>
+                Edit transfer
+              </button>
+            </>
+          ) : (
+            <>
+              <button type="button" onClick={backToForm}>
+                Try again
+              </button>
+              <Link className="button button-secondary" to="/transfers">
+                View past transfers
+              </Link>
+            </>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const source = accounts.data?.find((a) => String(a.id) === sourceId);
 
   return (
-    <section aria-labelledby="new-transfer-title">
-      <h1 id="new-transfer-title">New transfer</h1>
-
-      <div aria-live="assertive">
-        {outcome?.kind === 'error' && (
-          <ErrorAlert
-            error={outcome.error}
-            title={inProgress ? 'Still processing' : 'Transfer not completed'}
-          />
-        )}
-      </div>
+    <>
+      <h1 id="new-transfer-title">New money transfer</h1>
 
       {accounts.isError && <ErrorAlert error={accounts.error} title="Accounts could not be loaded" />}
 
-      <form className="card form" noValidate onSubmit={handleSubmit(onSubmit)}>
-        <div className="field">
-          <label htmlFor="sourceAccountId">Source account</label>
-          <select
-            id="sourceAccountId"
-            aria-invalid={errors.sourceAccountId ? true : undefined}
-            aria-describedby={errors.sourceAccountId ? 'sourceAccountId-error' : undefined}
-            disabled={accounts.isPending}
-            {...register('sourceAccountId')}
-          >
-            <option value="">{accounts.isPending ? 'Loading accounts…' : 'Choose an account'}</option>
-            {accounts.data?.map((account) => (
-              <option key={account.id} value={String(account.id)}>
-                {account.maskedIban} — {formatMoney(account.balance, account.currency)}
-              </option>
-            ))}
-          </select>
-          <FieldErrorText id="sourceAccountId-error" message={errors.sourceAccountId?.message} />
-        </div>
+      <div className="grid-2">
+        <form
+          className="card form"
+          noValidate
+          aria-labelledby="new-transfer-title"
+          onSubmit={handleSubmit(onSubmit)}
+        >
+          <div className="field">
+            <label htmlFor="sourceAccountId">Source account</label>
+            <select
+              id="sourceAccountId"
+              aria-invalid={errors.sourceAccountId ? true : undefined}
+              aria-describedby={errors.sourceAccountId ? 'sourceAccountId-error' : undefined}
+              disabled={accounts.isPending}
+              {...register('sourceAccountId')}
+            >
+              <option value="">{accounts.isPending ? 'Loading accounts…' : 'Choose an account'}</option>
+              {accounts.data?.map((account) => (
+                <option key={account.id} value={String(account.id)}>
+                  {account.maskedIban} — {formatMoney(account.balance, account.currency)}
+                </option>
+              ))}
+            </select>
+            <FieldErrorText id="sourceAccountId-error" message={errors.sourceAccountId?.message} />
+          </div>
 
-        <div className="field">
-          <label htmlFor="receiverIban">Receiver IBAN</label>
-          <input
-            id="receiverIban"
-            className="mono"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="TR00 0000 0000 0000 0000 0000 00"
-            aria-invalid={errors.receiverIban ? true : undefined}
-            aria-describedby={errors.receiverIban ? 'receiverIban-error' : undefined}
-            {...register('receiverIban')}
-          />
-          <FieldErrorText id="receiverIban-error" message={errors.receiverIban?.message} />
-        </div>
+          <div className="field">
+            <label htmlFor="receiverIban">Receiver IBAN</label>
+            <input
+              id="receiverIban"
+              className="mono"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="TR00 0000 0000 0000 0000 0000 00"
+              aria-invalid={errors.receiverIban ? true : undefined}
+              aria-describedby={errors.receiverIban ? 'receiverIban-error' : undefined}
+              {...register('receiverIban')}
+            />
+            <FieldErrorText id="receiverIban-error" message={errors.receiverIban?.message} />
+          </div>
 
-        <div className="field">
-          <label htmlFor="amount">Amount (TRY)</label>
-          <input
-            id="amount"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder="1500,00"
-            aria-invalid={errors.amount ? true : undefined}
-            aria-describedby={errors.amount ? 'amount-error' : undefined}
-            {...register('amount')}
-          />
-          <FieldErrorText id="amount-error" message={errors.amount?.message} />
-        </div>
+          <div className="field">
+            <label htmlFor="amount">Amount (TRY)</label>
+            <input
+              id="amount"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="1500,00"
+              aria-invalid={errors.amount ? true : undefined}
+              aria-describedby={errors.amount ? 'amount-error' : undefined}
+              {...register('amount')}
+            />
+            <FieldErrorText id="amount-error" message={errors.amount?.message} />
+          </div>
 
-        <div className="field">
-          <label htmlFor="description">Description (optional)</label>
-          <textarea
-            id="description"
-            rows={2}
-            maxLength={MAX_DESCRIPTION}
-            aria-invalid={errors.description ? true : undefined}
-            aria-describedby="description-count"
-            {...register('description')}
-          />
-          <span id="description-count" className="muted small">
-            {description.length}/{MAX_DESCRIPTION}
-          </span>
-          <FieldErrorText id="description-error" message={errors.description?.message} />
-        </div>
+          <div className="field">
+            <label htmlFor="description">Description (optional)</label>
+            <textarea
+              id="description"
+              rows={2}
+              maxLength={MAX_DESCRIPTION}
+              placeholder="What is this for?"
+              aria-invalid={errors.description ? true : undefined}
+              aria-describedby="description-count"
+              {...register('description')}
+            />
+            <span id="description-count" className="muted small">
+              {description.length}/{MAX_DESCRIPTION}
+            </span>
+            <FieldErrorText id="description-error" message={errors.description?.message} />
+          </div>
 
-        <button type="submit" disabled={submitting}>
-          {submitting ? 'Sending…' : inProgress ? 'Retry' : 'Send transfer'}
-        </button>
-      </form>
-    </section>
+          <button type="submit" disabled={submitting}>
+            {submitting ? 'Sending…' : 'Send now'}
+          </button>
+        </form>
+
+        <aside className="card" aria-label="Source account and limits">
+          {source ? (
+            <>
+              <p className="kicker">From {source.currency} account</p>
+              <h2>{formatMoney(source.balance, source.currency)} available</h2>
+              <p className="muted mono small">{source.maskedIban}</p>
+            </>
+          ) : (
+            <>
+              <p className="kicker">Source account</p>
+              <p className="muted">Choose an account to see its balance.</p>
+            </>
+          )}
+          {limits.data && (
+            <div className="stack">
+              <LimitLine label="Per transfer" value={formatMoney(limits.data.perTransferLimit)} />
+              <LimitLine label="Daily remaining" value={formatMoney(limits.data.daily.remaining)} />
+              <LimitLine label="Monthly remaining" value={formatMoney(limits.data.monthly.remaining)} />
+            </div>
+          )}
+        </aside>
+      </div>
+    </>
+  );
+}
+
+function LimitLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="limit-row">
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
   );
 }
 
