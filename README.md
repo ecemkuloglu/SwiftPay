@@ -1,219 +1,172 @@
 # SwiftPay – Instant Money Transfer
 
-Backend (Java / Spring Boot) and React UI for instant money transfers between accounts inside the same system.
+Instant TRY transfers between accounts inside one digital bank: Java / Spring Boot backend, React UI, PostgreSQL.
 Priorities: **correctness, consistency, security.**
 
-## 1. Quick start
+## 1. How to start
 
-**Requirements:** Docker Desktop with Docker Compose v2, plus `git`, `openssl` and `sed` (standard on macOS and Linux).
-For local development and running the tests outside Docker: JDK 21 (Maven is included as `./mvnw`) and Node.js 22+.
+**Requirements:** Docker Desktop (Compose v2), `git`, `openssl`, `sed`. To run tests outside Docker: JDK 21 and Node.js 22+.
 
 ```bash
 git clone https://github.com/ecemkuloglu/SwiftPay.git
 cd SwiftPay
 cp .env.example .env
-# Replace the placeholder secrets. The backend refuses to start with the .env.example JWT secret.
+# Replace the placeholder secrets (the backend refuses to start with the example JWT secret)
 sed -i.bak "s|^JWT_SECRET=.*|JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')|; s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env && rm .env.bak
 docker compose up --build
 ```
-(Without `openssl`/`sed`, e.g. on Windows: open `.env` and set `JWT_SECRET` to any random string of at least 32 characters and `POSTGRES_PASSWORD` to any password.)
+Without `openssl`/`sed` (e.g. Windows): set `JWT_SECRET` in `.env` to a random string of at least 32 characters and `POSTGRES_PASSWORD` to any password.
 
 | Service | URL |
 |---|---|
-| Frontend (nginx; also proxies `/api` to the backend) | http://localhost:3000 |
-| Backend API (direct) | http://localhost:8080/api |
+| Web UI | http://localhost:3000 |
+| API | http://localhost:8080/api |
 | Swagger UI | http://localhost:8080/swagger-ui.html |
 | Health | http://localhost:8080/actuator/health |
 
-**Demo credentials** (seeded by `backend/src/main/resources/db/migration-dev/V2__seed_demo_data.sql`, `dev` profile only)
+### Credentials
+Demo customers, seeded only with the `dev` profile (the docker-compose default):
 
-| Username | Password | Accounts (id, IBAN, opening balance) |
+| Username | Password | Accounts (IBAN, opening balance) |
 |---|---|---|
-| `ecem` | `Test1234!` | 1 `TR620006100000000000001001` 250,000.00 TRY · 2 `TR350006100000000000001002` 10,000.00 TRY |
-| `ali` | `Test1234!` | 3 `TR690006200000000000002001` 100,000.00 TRY · 4 `TR350006200000000000003001` 5,000.00 TRY |
+| `ecem` | `Test1234!` | `TR620006100000000000001001` 250,000.00 TRY · `TR350006100000000000001002` 10,000.00 TRY |
+| `ali` | `Test1234!` | `TR690006200000000000002001` 100,000.00 TRY · `TR350006200000000000003001` 5,000.00 TRY |
 
-**Run the tests**
+### Tests and Postman
 ```bash
-cd backend
-./mvnw clean verify         # 226 tests; integration tests use Testcontainers, so Docker must be running
-# coverage report: backend/target/site/jacoco/index.html
+(cd backend && ./mvnw clean verify)      # 226 tests, Testcontainers (Docker must run); JaCoCo fails under 80 % (now 98.4 %)
+(cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build)   # 104 tests
+npx newman run postman/SwiftPay.postman_collection.json --env-var baseUrl=http://localhost:8080/api   # stack running
 ```
-Current line coverage: 98.4 % (JaCoCo; `verify` fails below 80 %).
-```bash
-cd frontend
-npm ci
-npm run lint && npm run typecheck && npm test && npm run build   # 104 tests (Vitest + React Testing Library + MSW)
-```
-**Frontend dev server:** `cd frontend && npm run dev` → http://localhost:5173 (Vite proxies `/api` to `localhost:8080`).
+The Postman collection stores the login token automatically. It creates 11 real transfers per run; because of the rate limit (30 transfers per customer per minute), run it at most twice a minute.
 
-**Postman:** import `postman/SwiftPay.postman_collection.json` and run folders 1 → 6 in order; the login requests store the tokens automatically. From the command line (stack running):
-```bash
-npx newman run postman/SwiftPay.postman_collection.json --env-var baseUrl=http://localhost:8080/api
-```
-The collection creates real transfers (11 `POST /transfers` per run). Because of the transfer rate limit (30 per customer per minute), run it at most twice per minute (or wait a minute between runs).
+## 2. Tech stack
 
-## 2. How to review this project
-
-**The transfer flow** (`backend/src/main/java/com/swiftpay/`)
-
-| Concern | Where |
+| Area | Choice |
 |---|---|
-| HTTP entry, rate limit, `Idempotency-Key` and body validation, 201 vs 200 replay | `controller/TransferController` |
-| The single transaction: customer lock → idempotent insert → account locks → rules → debit/credit | `service/TransferService#createTransfer` |
-| Business rules in their fixed order | `service/TransferRuleValidator` |
-| Day/month windows (Europe/Istanbul), `used + amount <= limit` | `service/LimitService` |
-| Request normalisation and SHA-256 fingerprint | `service/RequestHasher` |
-| `SELECT … FOR NO KEY UPDATE` (customer; accounts `ORDER BY id`) | `repository/CustomerRepository#lockById`, `repository/AccountRepository#lockByIdsOrdered` |
-| `INSERT … ON CONFLICT (customer_id, idempotency_key) DO NOTHING` | `repository/TransferRepository#insertPendingIfAbsent` |
-| State machine and balance changes | `domain/Transfer`, `domain/Account` |
-| Error envelope and codes | `exception/GlobalExceptionHandler`, `exception/ErrorCode` |
-| JWT, filter chain, CORS, security headers | `config/SecurityConfig`, `security/JwtAuthenticationFilter`, `security/JwtService` |
-| Rate limiting | `service/RateLimiter` |
-| Frontend transfer form (idempotency key handling, double-submit guard) | `frontend/src/pages/NewTransferPage.tsx` |
+| Backend | Java 21, Spring Boot 3.5 (Web, Data JPA, Security, Validation, Actuator), Maven |
+| Database | PostgreSQL 16 + Flyway (no H2: locking must be tested on a real database) |
+| Security | JWT (jjwt, HS256), BCrypt, Bucket4j + Caffeine rate limiting |
+| Tests | JUnit 5, Mockito, MockMvc, Testcontainers, JaCoCo |
+| API docs | springdoc-openapi |
+| Frontend | Vite, React 19, TypeScript, React Router, TanStack Query, React Hook Form + Zod, plain CSS; Vitest, React Testing Library, MSW |
+| Delivery | Docker Compose: `db`, `backend`, `frontend` (nginx serves the UI and proxies `/api`) |
 
-**The tests that matter most** (`backend/src/test/java/com/swiftpay/`)
+## 3. Design
 
-| Test class | What it proves |
-|---|---|
-| `service/TransferConcurrencyTest` | 20 parallel transfers never overdraw; parallel transfers from two accounts never exceed the daily limit; 8 parallel requests with one key create exactly one transfer; A→B / B→A in parallel do not deadlock and lose no money. Each scenario runs 5 times. |
-| `service/TransferServiceIntegrationTest` | Happy path, every business failure stored as FAILED, exact limit boundaries, day/month rollover, idempotency replay / conflict, lock SQL. |
-| `service/TransferFlowIntegrationTest` | Call order customer lock → insert → account lock (Mockito `InOrder`); an unexpected error rolls everything back. |
-| `api/TransferApiTest`, `api/AuthApiTest`, `api/RateLimitApiTest`, `api/ClientIpBehindProxyTest` | The HTTP contract of API_SPEC.md, auth, IDOR, 429 + `Retry-After`, client IP behind the proxy. |
-| `frontend/src/pages/NewTransferPage.test.tsx` | Key reuse vs. new key, double click sends one request, every error code's message. |
-
-Run only the concurrency and idempotency tests:
-```bash
-cd backend
-./mvnw test -Dtest='TransferConcurrencyTest,TransferServiceIntegrationTest,TransferFlowIntegrationTest' -Djacoco.skip=true
-```
-
-## 3. Tech stack
-
-| Area | Choice | Why |
-|---|---|---|
-| Language / framework | Java 21, Spring Boot 3.5 (Web, Data JPA, Security, Validation, Actuator) | Prescribed by the case (`CLAUDE.md`); declarative transactions and JPA locking fit the consistency requirements |
-| Database | PostgreSQL 16 + Flyway | Real row-level locking is required to test concurrency; H2 behaves differently |
-| Auth | JWT (jjwt, HS256) with Spring Security, BCrypt | Stateless, simple |
-| Rate limiting | Bucket4j + Caffeine (in memory) | Correct token-bucket refill and exact `Retry-After` without hand-written timing code |
-| Tests | JUnit 5, Mockito, MockMvc, Testcontainers, JaCoCo | Integration tests run against real PostgreSQL |
-| API docs | springdoc-openapi | Generated from code |
-| Frontend | Vite, React 19, TypeScript (strict), React Router, TanStack Query, React Hook Form + Zod, plain CSS, self-hosted IBM Plex fonts (`@fontsource`); tests: Vitest, React Testing Library, MSW | Server state and cache invalidation from TanStack Query; schema validation with Zod; plain CSS keeps the bundle and the dependency surface small and needs no inline styles under the CSP; fonts are bundled, so the CSP stays `font-src 'self'` |
-| Delivery | Docker Compose: `db`, `backend`, `frontend` (nginx) | One command to run everything |
-
-## 4. Design
-
-### 4.1 Architecture
 ```mermaid
 flowchart LR
-  B["Browser: React SPA"] -->|"HTTP :3000"| N["nginx: static files + /api proxy"]
-  P["Postman / curl / Swagger"] -->|"HTTP :8080"| F
-  N -->|"/api/* (X-Forwarded-For overwritten)"| F["Filters: TraceIdFilter, then JWT filter (Spring Security)"]
-  F --> C["Controllers"]
-  C --> RL["RateLimiter (Bucket4j)"]
+  B["Browser: React UI"] -->|":3000"| N["nginx: static files + /api proxy"]
+  N --> F["Trace id + JWT filters"]
+  P["Postman / Swagger"] -->|":8080"| F
+  F --> C["Controllers (rate limit, validation)"]
   C --> S["Services: transfer, limits, accounts, statistics, auth"]
-  S --> A["AuditLogger"]
   S --> R["Repositories (Spring Data JPA)"]
-  A --> R
   R --> DB[("PostgreSQL")]
 ```
-Packages: `controller / service / repository / domain / dto / config / exception / security`. Entities never leave the service layer; the API uses DTOs only.
+Packages: `controller / service / repository / domain / dto / config / exception / security`. The API uses DTOs only.
+Money is `BigDecimal` / `NUMERIC(19,2)` and a **string** in JSON. Timestamps are stored and returned in UTC.
 
-### 4.2 Data model
-```mermaid
-erDiagram
-  CUSTOMER ||--o{ ACCOUNT : owns
-  CUSTOMER ||--o{ TRANSFER : initiates
-  ACCOUNT ||--o{ TRANSFER : "source"
-  ACCOUNT |o--o{ TRANSFER : "receiver (NULL if unknown IBAN)"
-  CUSTOMER |o--o{ AUDIT_LOG : "has (NULL for unknown login user)"
-  TRANSFER |o--o{ AUDIT_LOG : has
-```
-Money is `NUMERIC(19,2)` / `BigDecimal`; JSON money fields are strings. Timestamps are `TIMESTAMPTZ` (UTC).
-Schema: `backend/src/main/resources/db/migration/V1__init_schema.sql`.
+**Creating a transfer is one database transaction:**
+1. Lock the customer row, so the same customer's transfers (and their limit checks) run one at a time.
+2. Insert the transfer as `PENDING` with `ON CONFLICT (customer_id, idempotency_key) DO NOTHING`. If the key already exists, the stored request hash decides: same payload → the original result (`200`, `Idempotent-Replayed: true`); different payload → `409 IDEMPOTENCY_KEY_CONFLICT`.
+3. Lock source and receiver accounts in **ascending id order** (no deadlocks).
+4. Check the rules in a fixed order: ownership → receiver exists → not the same account → per-transfer limit → balance → daily limit → monthly limit. A violation stores the transfer as `FAILED` with its reason; no balance changes.
+5. Debit, credit, mark `COMPLETED`. Any unexpected error rolls everything back.
 
-### 4.3 Transfer flow (`TransferService#createTransfer`, one transaction)
-1. **Controller:** per-customer rate limit, then `Idempotency-Key` (missing → `IDEMPOTENCY_KEY_REQUIRED`), then body validation.
-2. **Normalise and fingerprint** (no DB): IBAN upper-cased without spaces, amount at scale 2, trimmed description → SHA-256 request hash.
-3. **Lock the customer row** (`FOR NO KEY UPDATE`): serialises that customer's transfers, so limit checks cannot race.
-4. **Source account must exist and belong to the caller**, otherwise `403 ACCOUNT_NOT_OWNED` without a transfer row (audit only).
-5. **Resolve the receiver id** from the IBAN (no lock; `NULL` if unknown).
-6. **`INSERT … ON CONFLICT (customer_id, idempotency_key) DO NOTHING`** as `PENDING`. If nothing was inserted, the existing row decides: different hash → `409 IDEMPOTENCY_KEY_CONFLICT`; `COMPLETED` → replay (200, `Idempotent-Replayed: true`); `FAILED` → the stored error again; `PENDING` → `409 REQUEST_IN_PROGRESS`.
-7. **Lock source and receiver accounts in ascending id order** (no deadlocks).
-8. **Business rules in a fixed order:** ownership → receiver exists → not same account → per-transfer limit → balance → daily limit → monthly limit. A violation marks the transfer `FAILED` with the error code, writes an audit row and commits (`noRollbackFor = BusinessException`); no balance changes.
-9. **Debit, credit, mark `COMPLETED`**, audit `TRANSFER_COMPLETED`. Any unexpected exception rolls everything back.
-
-### 4.4 Key decisions and trade-offs
-| Decision | Reason | Trade-off |
+| Decision | Why | Trade-off |
 |---|---|---|
-| Pessimistic locking (customer, then accounts by id) | Correctness under concurrency is the top priority; contention per customer is low | Lower throughput than optimistic locking under heavy contention on one customer |
-| DB-level unique constraint for idempotency | Protects even if application logic has a bug | Needs a request hash to detect key reuse with a different payload |
-| `Clock` injected everywhere | Deterministic tests for day/month boundaries | Slightly more wiring |
-| Limits in `application.yml` | Required to be configurable | No per-customer limits |
-| Money as strings in JSON | Avoids float rounding in clients | Clients must parse |
-| 404 for other customers' transfers | Does not reveal that an id exists | Less specific error for legitimate mistakes |
+| Pessimistic locks (customer, then accounts by id) | Correct under concurrency; contention per customer is low | Less throughput than optimistic locking on a very busy customer |
+| Unique constraint + request hash for idempotency | Duplicates are blocked by the database, even under parallel requests | One extra column and lookup |
+| Injected `Clock` | Day/month boundaries are testable (23:59:59 vs 00:00:00) | Slightly more wiring |
+| 404 for other customers' transfers | Does not reveal that an id exists | Less specific error |
 
-### 4.5 Error model
-Every error: `{ code, message, traceId, timestamp, fieldErrors? }`. Every success: `{ data, traceId, timestamp }`.
-The trace id is also returned as `X-Trace-Id` and appears in every log line (MDC). Full list of codes: `API_SPEC.md`.
+Responses: success `{data, traceId, timestamp}`; error `{code, message, traceId, timestamp, fieldErrors?}`. Error codes: `API_SPEC.md`.
+
+## 4. Assumptions
+
+> - **Currency is TRY only.**
+> - **Authentication is JWT with seeded demo customers; registration is out of scope.**
+> - **Limits are global values from configuration (`app.limits.*`: per transfer 50,000 / daily 100,000 / monthly 500,000 TRY), the same for every customer.**
+> - **Limits apply per customer across all of their accounts; transfers between a customer's own accounts count toward them too.**
+> - **Only COMPLETED transfers count toward the daily and monthly totals and the statistics. Failed attempts are stored as FAILED with a reason and do not count.**
+> - **Day and month boundaries use the Europe/Istanbul time zone.**
+> - **The receiver IBAN must belong to an account in this system; otherwise `404 RECEIVER_NOT_FOUND`.**
+> - **Transfers to the same account are forbidden; transfers between a customer's own accounts are allowed.**
+> - **A source account that does not exist or belongs to another customer gives `403 ACCOUNT_NOT_OWNED` (as API_SPEC.md requires) and creates no transfer row.**
+> - **Another customer's transfer answers `404 TRANSFER_NOT_FOUND`, so its existence is not revealed.**
+> - **Idempotency keys are scoped per customer and never expire. Replaying a FAILED transfer returns the same error, so a retry needs a new key.**
+> - **Two error codes were added to API_SPEC.md: `404 NOT_FOUND` (unknown route) and `405 METHOD_NOT_ALLOWED`.**
+> - **The UI keeps the access token in memory and `sessionStorage` (never `localStorage`): it survives a reload but not closing the tab (there are no refresh tokens in the spec).**
 
 ## 5. Security
-- JWT authentication (HS256), BCrypt password hashing, 15-minute token expiry (`JWT_EXPIRATION_SECONDS=900`). The backend refuses to start without a real `JWT_SECRET` (missing, shorter than 32 bytes, or the `.env.example` placeholder).
-- Every query is scoped to the authenticated customer; ownership is checked server-side (IDOR tests included).
-- Rate limiting (Bucket4j token buckets in a bounded Caffeine map): 5 failed logins per username + client IP per 15 minutes (`429 TOO_MANY_ATTEMPTS`; a successful login resets the count) and 30 `POST /transfers` per customer per minute (`429 TOO_MANY_REQUESTS`); both send `Retry-After`. Configurable under `app.rate-limit`.
-- Client IP for the login limit: `X-Forwarded-For` is honoured only when the TCP peer matches `TRUSTED_PROXIES` (Tomcat `RemoteIpValve`). In docker-compose that is only the nginx container (fixed IP `172.28.0.10`), and nginx overwrites the header with the real peer address, so clients cannot spoof it; a direct caller on `:8080` is identified by its TCP address. With `TRUSTED_PROXIES` unset, no proxy is trusted.
-- CORS: explicit origins only (`CORS_ALLOWED_ORIGINS`, default `http://localhost:5173,http://localhost:3000`; `*` is rejected at startup); allowed headers `Authorization`, `Content-Type`, `Idempotency-Key`; exposed headers `X-Trace-Id`, `Idempotent-Replayed`, `Retry-After`.
-- Backend response headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`.
-- nginx (frontend container) runs as a non-root user and sends `Content-Security-Policy` (`'self'` only, no inline scripts or styles), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and a restrictive `Permissions-Policy`.
-- Generic login error message; no stack traces, exception messages or class names in responses (tested).
-- Logs and audit rows never contain passwords, tokens or full IBANs (IBANs are masked; tested with captured log output).
-- Frontend: the token lives in memory + `sessionStorage` (never `localStorage`); every user-provided value is rendered as text (no `dangerouslySetInnerHTML`, enforced by ESLint); nothing personal goes into URLs; the API client never logs.
-- Secrets come from environment variables (`.env`, git-ignored). The git history was scanned with gitleaks v8.30.1 (no leaks) and pattern searches.
-- **Dependency scans (2026-11-18):**
-  - `npm audit --omit=dev`: 0 vulnerabilities in the frontend's production dependencies. Dev tooling has one open advisory chain (`picomatch` ReDoS, GHSA-fc5q-39xc-vjpf, every version up to the latest 4.0.7) reached through Vite / Vitest / typescript-eslint; it only affects build-time glob patterns written by developers.
-  - Trivy 0.76.1 on both Docker images (HIGH/CRITICAL): frontend image 0; backend image OS 0. Tomcat, Jackson and the PostgreSQL driver were raised to patched versions (overrides in `backend/pom.xml`). Two findings remain in `spring-webmvc` 6.2.19 (CVE-2026-47884, `XsltView`; CVE-2026-47890, SSE with view fragments): this application uses neither, and the only fix is an upgrade to Spring Framework 7 / Spring Boot 4.
+- JWT with 15-minute expiry, BCrypt passwords; the backend refuses to start without a real `JWT_SECRET`.
+- Every query is scoped to the signed-in customer (IDOR tests included).
+- Rate limits with `Retry-After`: 5 failed logins per username + IP per 15 minutes; 30 transfers per customer per minute. The client IP is taken from `X-Forwarded-For` only when the request comes from the nginx container.
+- CORS with explicit origins (no `*`); security headers on the API; strict Content Security Policy on the UI (no inline scripts or styles, fonts served by the app).
+- Generic login error; no stack traces in responses; logs never contain passwords, tokens or full IBANs (IBANs are masked, e.g. `TR33 **** **** **** **** 1326`).
+- Secrets come from environment variables (`.env`, git-ignored; `.env.example` has placeholders only).
+- Scans (2026-11-18): gitleaks on the git history (no leaks). `npm audit --omit=dev`: 0 issues. Trivy on both images: no HIGH/CRITICAL except two `spring-webmvc` 6.2.19 findings in features this app does not use (`XsltView`, SSE view fragments); fixing them needs Spring Boot 4.
 
 ## 6. API and implementation notes
-Details that follow from API_SPEC.md; listed so reviewers do not have to read the code for them.
+- **Idempotency key:** 8–64 characters of `A-Z a-z 0-9 _ -` (a UUID fits). `"1500"` and `"1500.00"` count as the same payload.
+- **Locks:** Hibernate issues `SELECT … FOR NO KEY UPDATE` for pessimistic write locks on PostgreSQL. It blocks other writers like `FOR UPDATE` but not foreign-key checks, which avoids a deadlock between opposite-direction transfers.
+- **Requests:** unknown JSON fields → `400 VALIDATION_ERROR`; `amount` may be a JSON string or number; responses always use strings.
+- **Transfer list:** `startDate` / `endDate` are inclusive Istanbul days on `createdAt`; `size` 1–100 (default 10); newest first.
+- **Auth:** every invalid token gives the same `401 UNAUTHORIZED`; unknown user and wrong password take about the same time.
+- **Migrations:** schema in `db/migration` (V1); demo seed in `db/migration-dev` (V2, `dev` profile only), so new schema migrations start at V3.
+- **UI:** one idempotency key per transfer, reused for retries of the same payload after a network error, 5xx, `400`, `409 REQUEST_IN_PROGRESS` or `429`; a new key after success, a business error or any change to the form. Amounts accept `1500`, `1500,5` or `1500.50`; money is never converted to a float.
 
-- **Idempotency:** `Idempotency-Key` must be 8–64 characters of `A-Z a-z 0-9 _ -` (a UUID fits); a missing key is reported (`IDEMPOTENCY_KEY_REQUIRED`) before body validation errors. The payload fingerprint is SHA-256 of source account, normalised IBAN, amount at scale 2 and trimmed description, so `"1500"` and `"1500.00"` are the same request. A replay answers `200` with `Idempotent-Replayed: true`. Transfer ids may have gaps: PostgreSQL consumes a sequence value even when `INSERT ... ON CONFLICT DO NOTHING` inserts nothing.
-- **Locking:** pessimistic locks are `SELECT ... FOR NO KEY UPDATE` (Hibernate's PostgreSQL mapping of `PESSIMISTIC_WRITE`). It excludes concurrent writers like `FOR UPDATE` but does not conflict with the `FOR KEY SHARE` locks taken by foreign-key checks, which avoids a deadlock between the transfer insert and opposite-direction transfers. The customer row is locked first, then the accounts in ascending id order.
-- **Requests:** `amount` is accepted as a JSON string (as specified) or a JSON number; responses always use strings. Unknown JSON fields are rejected with `400 VALIDATION_ERROR` (catches typos such as `ammount`); an unsupported `Content-Type` is also `400 VALIDATION_ERROR`, because the spec has no 415 code. The per-customer transfer rate limit is checked before validation, so invalid requests count too.
-- **Responses:** `POST /transfers` returns exactly the fields in API_SPEC.md; `sourceAccountMaskedIban` is only in `GET /transfers/{id}`, which adds `failureReason` as readable text for FAILED transfers. IBANs are masked as `TR33 **** **** **** **** 1326` (API_SPEC's shorter list example `TR64 **** 0002` is treated as illustrative).
-- **Transfer list:** `startDate` / `endDate` filter on `createdAt` (FAILED transfers have no `completedAt`) and are inclusive Istanbul calendar days. Only `sort=createdAt,desc` (default) or `sort=createdAt,asc` is accepted; `size` must be 1..100 (default 10); anything else is `400 VALIDATION_ERROR`.
-- **Auth:** every bad token (missing, malformed, expired, tampered, wrongly signed, unsigned, or belonging to a deleted customer) gives the same `401 UNAUTHORIZED`; the JWT filter checks on each request that the customer still exists. Without a token, an unknown route answers `401` before `404`. Login answers unknown user and wrong password identically and checks a dummy BCrypt hash for unknown users, so both take about the same time; failed logins are audited without the password.
-- **Tracing:** the trace id is always generated by the server (16 hex characters); a client-sent `X-Trace-Id` is ignored.
-- **Database migrations:** the schema is `db/migration/V1__init_schema.sql`. The demo seed (`db/migration-dev/V2__seed_demo_data.sql`) is loaded only with the `dev` profile (the docker-compose default); because it takes version V2 in dev, new schema migrations start at V3.
-- **Frontend:** one `Idempotency-Key` (`crypto.randomUUID()`) per logical transfer. It is reused when the same payload is retried after a network error, a 5xx, `409 REQUEST_IN_PROGRESS`, `429` or `400`; a new key is generated after a success, after a definitive business error (422 / 403 / 404 / `IDEMPOTENCY_KEY_CONFLICT`) and whenever the user changes the payload. After a `401` the login page shows "Session expired" and returns the user to the previous page after signing in. Amounts are entered as digits with one optional decimal separator (`1500`, `1500,5`, `1500.50`; no thousands separators, so `1.500` can never be misread); money is formatted tr-TR style (`12.450,00 TRY`) with string operations, never as a float. Dates are shown in Europe/Istanbul time. After sending, a success replaces the form with a receipt; a failure replaces it with an error card (title, message, support code). Retryable failures (network, 5xx, `REQUEST_IN_PROGRESS`, `429`) offer **Retry** (same payload, same key) and **Edit transfer**; the others offer **Try again**, which returns to the filled-in form.
+## 7. How to review
+| Concern | Where (`backend/src/main/java/com/swiftpay/`) |
+|---|---|
+| Transfer transaction (locks, idempotent insert, rules, debit/credit) | `service/TransferService#createTransfer` |
+| Business rules and limits | `service/TransferRuleValidator`, `service/LimitService` |
+| Lock and idempotency SQL | `repository/CustomerRepository`, `repository/AccountRepository`, `repository/TransferRepository` |
+| Errors, security | `exception/GlobalExceptionHandler`, `config/SecurityConfig`, `security/` |
+| Concurrency and idempotency proof | `src/test/.../service/TransferConcurrencyTest` (parallel transfers never overdraw or exceed the daily limit; one key → one transfer; A→B / B→A without deadlock) |
+| UI transfer form | `frontend/src/pages/NewTransferPage.tsx` |
 
-## 7. AI-assisted development
-Required by the case: agentic coding tools were used.
+## 8. AI-assisted development
+Required by the case: agentic coding tools were used. I used Claude Code (Anthropic) as a coding agent and ran it as a controlled engineering process: I set the rules, made the decisions, and nothing was merged without a plan, my approval and evidence that it works.
 
-- **Tool:** Claude Code (Anthropic), used as a coding agent in the terminal / desktop app.
-- **How:**
-  - `CLAUDE.md` (rules, stack, hard requirements) and `API_SPEC.md` (the API contract) were written first and given to the agent as the source of truth.
-  - The work was split into small steps, one commit each: project skeleton → domain and repositories → services with concurrency tests → JWT security and error handling → controllers and rate limiting → proxy client-IP fix → frontend → final verification.
-  - For every step the agent first wrote a plan and waited for approval; after implementing, it ran the full test suite and showed the results, and committed only after approval.
-  - Spec gaps were not decided silently: they were raised and decided explicitly (e.g. the `NOT_FOUND` / `METHOD_NOT_ALLOWED` codes, trusting `X-Forwarded-For` only from nginx).
-- **What was generated:** the backend and frontend code, the tests, the Docker / nginx configuration and most of this README were generated by the agent from the approved plans.
-- **Issues the agent's own checks caught:** Hibernate generates `FOR NO KEY UPDATE` instead of `FOR UPDATE` (kept on purpose, see API and implementation notes); a concurrency test that could not detect a missing customer lock (fixed and verified by removing the lock); a race between the session-expired redirect and `ProtectedRoute`; the quick start failing on a clean clone because of the placeholder JWT secret; outdated base image and library versions found by Trivy.
-- **What I reviewed or changed manually** (locking order, idempotency, limit calculation, security): <!-- MINE: describe what you reviewed line by line and what you changed yourself -->
+**1. Rules first, code second**
+- Before any code, I wrote `CLAUDE.md` (stack, hard rules for money, transactions, locking, idempotency, limits, time, authorization, logging) and `API_SPEC.md` (the exact API contract). The agent had to treat both as the source of truth.
+- Ambiguities had to be raised, not guessed. Every open point came back to me as a question, and I decided it.
 
-## 8. Project structure
+**2. Small, reviewable steps with a fixed loop**
+- The work went in small steps: project skeleton → domain and repositories → services with concurrency tests → JWT security and error handling → controllers and rate limiting → proxy client-IP fix → frontend → final verification → UI design.
+- Each step followed the same loop: **plan → my approval → implementation → full checks with real output → my approval → commit**. I pushed to GitHub myself.
+- Hard rule for the agent: never report a check as passed without running it, and report failures as they are.
+
+**3. Decisions I made along the way**
+- **Libraries and structure:** jjwt for JWT; demo data in a separate, `dev`-only Flyway location so production never gets seed users.
+- **API contract:** added `404 NOT_FOUND` and `405 METHOD_NOT_ALLOWED` to the spec instead of letting unknown routes fall into generic errors.
+- **Security:** trust `X-Forwarded-For` only from the nginx container, so the login rate limit cannot be bypassed with a forged header.
+- **Order of work:** when the frontend step exposed a backend configuration problem, I stopped the frontend work and had the backend fixed first.
+- **Scope control:** a per-customer limit override was prototyped and verified end to end. I then rolled it back to keep the agreed rule (limits are global configuration), so the change did not grow the scope without a reason.
+- **UI:** I took the visual design from a separate prototype. I chose self-hosted fonts so the strict Content Security Policy did not have to be relaxed. I also chose a dedicated statistics page, full-page receipt and error screens, and no demo shortcuts that would send real transfers.
+
+**4. Verification I required, not just unit tests**
+- JaCoCo gate at 80 % (actual 98.4 %), concurrency and idempotency tests on a real PostgreSQL (Testcontainers), with the concurrency test proven to fail when the customer lock is removed.
+- End to end with `docker compose` on a fresh clone, plus the Postman collection with newman.
+- Trivy image scans, `npm audit` and a gitleaks history scan.
+- Visual checks of the UI in a browser at desktop and mobile width.
+- When a check once ran against my own local stack instead of an isolated one, I had it stopped, the environment reset and the check repeated on a clean copy. Later checks ran in a separate Compose project.
+
+**5. What the agent generated, and what its checks caught**
+- **Generated from my approved plans:** the backend and frontend code, the tests, the Docker / nginx configuration and most of this README.
+- **Caught before commit:**
+  - Hibernate generates `FOR NO KEY UPDATE` instead of `FOR UPDATE` (kept on purpose, see API and implementation notes).
+  - A concurrency test could not detect a missing customer lock; it was fixed and verified by removing the lock.
+  - A race between the session-expired redirect and `ProtectedRoute`.
+  - The quick start failed on a clean clone because of the placeholder JWT secret.
+  - Trivy found outdated base images and library versions.
+  - Mobile layout overflow in the new UI.
+
+## 9. Project structure
 ```
-.env.example            environment template (placeholders only)
-docker-compose.yml      db (PostgreSQL 16), backend, frontend (nginx)
-API_SPEC.md             API contract
-CLAUDE.md               agent rules and hard requirements
-postman/                Postman collection
-backend/                Spring Boot application (Maven wrapper: ./mvnw)
-  src/main/java/com/swiftpay/   controller, service, repository, domain, dto, config, exception, security
-  src/main/resources/db/migration/       Flyway schema (V1)
-  src/main/resources/db/migration-dev/   demo seed (V2, dev profile only)
-frontend/               React application (Vite); Dockerfile, nginx.conf, security-headers.conf
-  src/api/              single API client + one file per resource
-  src/types/            API types hand-written from API_SPEC.md
-  src/auth/             AuthContext, ProtectedRoute, token storage
-  src/pages/            Login, Overview, New transfer, Past transfers, Transfer detail, Monthly statistics
-  src/components/       shared UI (sidebar layout, brand, account card, limit bar, transfer table, statistics table and bars, error alert)
-  src/utils/            money, IBAN, dates, error messages
+.env.example   docker-compose.yml   API_SPEC.md   CLAUDE.md   postman/
+backend/       Spring Boot app (./mvnw); Flyway schema in db/migration, demo seed in db/migration-dev
+frontend/      React app (Vite); Dockerfile, nginx.conf, security-headers.conf
 ```
